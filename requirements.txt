@@ -20,3 +20,8 @@ matplotlib>=3.7
 
 # Demo
 gradio>=4.0
+
+# Data acquisition (Google Earth Engine). Only needed to run scripts/gee_export.py;
+# preinstalled on Kaggle/Colab, so `pip install earthengine-api geemap` on demand.
+earthengine-api>=0.1.380
+geemap>=0.30

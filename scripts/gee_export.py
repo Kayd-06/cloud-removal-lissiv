@@ -13,21 +13,27 @@ Why S2 as the 'clear' target?
 
 --------------------------------------------------------------------------------
 SETUP (one time, free):
-  1. Create an Earth Engine account:  https://earthengine.google.com  (sign up)
-  2. pip install earthengine-api geemap
-  3. earthengine authenticate         # opens browser, paste token
-  4. Create a Google Cloud project (free) and note its id for --project
+  1. Register for Earth Engine: https://earthengine.google.com -> "Get Started",
+     sign in with Google, create/choose a Cloud project (free, non-commercial use).
+  2. Note your project id (e.g. "ee-yourname") -> pass as --project.
 
-RUN:
-  python scripts/gee_export.py \
-      --project my-ee-project \
-      --bbox 91.70 26.10 91.85 26.25 \      # minLon minLat maxLon maxLat (NER example)
-      --start 2023-11-01 --end 2024-02-28 \  # dry season = fewer clouds for clear target
-      --out_folder lissiv_ee                 # goes to your Google Drive
+RUN INSIDE A KAGGLE NOTEBOOK (recommended, no local Python needed):
+  cell 1:
+      !pip install -q earthengine-api geemap
+  cell 2:
+      import ee; ee.Authenticate()      # prints a link -> approve -> paste token
+  cell 3 (small area, downloads straight into Kaggle -- easiest):
+      !python scripts/gee_export.py --project ee-yourname \
+          --bbox 91.72 26.10 91.80 26.18 \   # ~0.08 deg test box near Guwahati
+          --start 2023-11-01 --end 2024-02-28 \
+          --to_local data/raw
 
-Exports (to Drive/<out_folder>) three GeoTIFFs per footprint:
+For LARGER areas, drop --to_local; it batch-exports to your Google Drive instead
+(no ~32MB download cap), then you copy those GeoTIFFs into Kaggle.
+
+Produces three GeoTIFFs:
   s2_clear_*.tif  (G,R,NIR reflectance)   -> tiling.py --liss
-  s1_sar_*.tif    (VV,VH dB)              -> tiling.py --sar
+  s1_sar_*.tif    (VV,VH)                 -> tiling.py --sar
   s2_cloudmask_*.tif                       -> cloud_mask.transfer_s2_mask
 --------------------------------------------------------------------------------
 """
@@ -42,16 +48,21 @@ def main() -> None:
                     metavar=("minLon", "minLat", "maxLon", "maxLat"))
     ap.add_argument("--start", required=True, help="YYYY-MM-DD")
     ap.add_argument("--end", required=True, help="YYYY-MM-DD")
-    ap.add_argument("--out_folder", default="lissiv_ee", help="Drive folder name")
+    ap.add_argument("--out_folder", default="lissiv_ee", help="Drive folder name (drive mode)")
     ap.add_argument("--scale", type=int, default=10, help="export resolution (m); S2=10")
     ap.add_argument("--max_cloud", type=int, default=20, help="max scene cloud %% for clear target")
+    ap.add_argument("--to_local", default=None,
+                    help="if set, download GeoTIFFs straight to this local dir (Kaggle-friendly, "
+                         "no Google Drive). Best for SMALL areas (<~0.1 deg) due to a ~32MB "
+                         "download cap. Requires geemap.")
     args = ap.parse_args()
 
     try:
         import ee
     except ImportError:
-        raise SystemExit("pip install earthengine-api geemap, then `earthengine authenticate`")
+        raise SystemExit("pip install earthengine-api geemap, then authenticate (see header)")
 
+    # In a Kaggle/Colab notebook, run `ee.Authenticate()` once (paste the token) before this.
     ee.Initialize(project=args.project)
     region = ee.Geometry.Rectangle(args.bbox)
 
@@ -88,24 +99,40 @@ def main() -> None:
           .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VH")))
     s1_img = s1.select(["VV", "VH"]).median().clip(region)
 
-    # ---------------- export tasks -> Google Drive -----------------------------------------
     tag = f"{args.bbox[0]:.2f}_{args.bbox[1]:.2f}"
     tasks = [
-        ("s2_clear_" + tag, s2_clear, args.scale),
-        ("s2_cloudmask_" + tag, cloud_mask, args.scale),
-        ("s1_sar_" + tag, s1_img, args.scale),
+        ("s2_clear_" + tag, s2_clear.toFloat()),
+        ("s2_cloudmask_" + tag, cloud_mask.toFloat()),
+        ("s1_sar_" + tag, s1_img.toFloat()),
     ]
-    for name, img, scale in tasks:
-        task = ee.batch.Export.image.toDrive(
-            image=img.toFloat(), description=name, folder=args.out_folder,
-            fileNamePrefix=name, region=region, scale=scale, maxPixels=1e10,
-            fileFormat="GeoTIFF",
-        )
-        task.start()
-        print(f"[gee] started export: {name}  (scale={scale}m) -> Drive/{args.out_folder}")
 
-    print("\nTrack progress at https://code.earthengine.google.com/tasks "
-          "or `earthengine task list`. Files land in your Google Drive when done.")
+    if args.to_local:
+        # ---------- direct download to the local filesystem (Kaggle/Colab) ----------
+        import os
+        try:
+            import geemap
+        except ImportError:
+            raise SystemExit("pip install geemap  (needed for --to_local)")
+        os.makedirs(args.to_local, exist_ok=True)
+        for name, img in tasks:
+            out = os.path.join(args.to_local, name + ".tif")
+            print(f"[gee] downloading {name} -> {out} ...")
+            geemap.ee_export_image(img, filename=out, scale=args.scale,
+                                   region=region, file_per_band=False)
+        print(f"\n[done] GeoTIFFs saved to {args.to_local}/  "
+              f"-> feed s2_clear_*.tif to tiling.py --liss and s1_sar_*.tif to --sar")
+    else:
+        # ---------- batch export to Google Drive (for larger areas) ----------
+        for name, img in tasks:
+            task = ee.batch.Export.image.toDrive(
+                image=img, description=name, folder=args.out_folder,
+                fileNamePrefix=name, region=region, scale=args.scale, maxPixels=1e10,
+                fileFormat="GeoTIFF",
+            )
+            task.start()
+            print(f"[gee] started export: {name}  (scale={args.scale}m) -> Drive/{args.out_folder}")
+        print("\nTrack progress at https://code.earthengine.google.com/tasks "
+              "or `earthengine task list`. Files land in your Google Drive when done.")
 
 
 if __name__ == "__main__":
