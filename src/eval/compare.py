@@ -25,6 +25,21 @@ def _mean(dicts: list[dict]) -> dict:
     return {k: float(np.mean([d[k] for d in dicts])) for k in keys}
 
 
+def to_display(img):
+    """Turn a (3,H,W)=[Green,Red,NIR] patch into a natural-looking RGB for viewing.
+
+    LISS-IV has no Blue band, so we synthesize a plausible blue from green and render
+    Red/Green/synth-Blue, then apply a per-image 2-98 percentile stretch + mild gamma.
+    This makes vegetation green and land natural instead of the raw NIR-in-blue cast.
+    """
+    g, r, nir = img[0], img[1], img[2]
+    b = np.clip(0.6 * g, 0, 1)                       # synthesized blue-ish channel
+    rgb = np.stack([r, g, b], axis=-1).astype(np.float32)
+    lo, hi = np.percentile(rgb, (2, 98))
+    rgb = np.clip((rgb - lo) / (hi - lo + 1e-6), 0, 1) ** 0.8
+    return rgb
+
+
 def save_triptych(cloudy, pred, target, path):
     try:
         import matplotlib.pyplot as plt
@@ -32,7 +47,7 @@ def save_triptych(cloudy, pred, target, path):
         return
     fig, ax = plt.subplots(1, 3, figsize=(9, 3))
     for a, img, t in zip(ax, [cloudy, pred, target], ["cloudy", "reconstructed", "clear"]):
-        a.imshow(np.transpose(img[:3], (1, 2, 0)).clip(0, 1)); a.set_title(t); a.axis("off")
+        a.imshow(to_display(img[:3])); a.set_title(t); a.axis("off")
     fig.tight_layout(); fig.savefig(path, dpi=110); plt.close(fig)
 
 
