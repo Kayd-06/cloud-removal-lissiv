@@ -60,21 +60,49 @@ def sam(pred, target, eps: float = 1e-8) -> float:
     return float(np.mean(np.arccos(cos)))
 
 
-def masked(fn, pred, target, mask):
-    """Apply a metric only where mask==1 (the clouded/reconstructed region)."""
+def _masked_spectra(pred, target, mask):
+    """Select spectral vectors only at clouded pixels. Returns (pv, tv) each (C, Nmask).
+
+    Handles (C,H,W) and (B,C,H,W). Selecting real pixels (rather than zero-filling
+    the background) is what makes the masked metrics meaningful -- zero-filled
+    pixels create zero spectral vectors that corrupt PSNR/SAM.
+    """
     p, t, m = _to_np(pred), _to_np(target), _to_np(mask)
-    m = np.broadcast_to(m, p.shape)
-    if m.sum() < 1:
-        return fn(pred, target)
-    # zero out non-clouded pixels in both -> approximate masked metric
-    return fn(p * m, t * m)
+    if p.ndim == 3:
+        p, t, m = p[None], t[None], m[None]
+    B, C = p.shape[:2]
+    pv = p.transpose(1, 0, 2, 3).reshape(C, -1)     # (C, B*H*W)
+    tv = t.transpose(1, 0, 2, 3).reshape(C, -1)
+    mm = m.reshape(B, m.shape[1], -1)[:, 0, :].reshape(-1) > 0.5   # (B*H*W,)
+    return pv[:, mm], tv[:, mm]
+
+
+def masked_psnr(pred, target, mask, max_val: float = 1.0) -> float:
+    """PSNR computed over clouded pixels only."""
+    pv, tv = _masked_spectra(pred, target, mask)
+    if pv.shape[1] < 1:
+        return psnr(pred, target, max_val)
+    mse = np.mean((pv - tv) ** 2)
+    if mse < 1e-12:
+        return 99.0
+    return float(20 * np.log10(max_val) - 10 * np.log10(mse))
+
+
+def masked_sam(pred, target, mask, eps: float = 1e-8) -> float:
+    """Mean SAM (radians) over clouded pixels only."""
+    pv, tv = _masked_spectra(pred, target, mask)
+    if pv.shape[1] < 1:
+        return sam(pred, target)
+    dot = (pv * tv).sum(0)
+    cos = np.clip(dot / (np.linalg.norm(pv, axis=0) * np.linalg.norm(tv, axis=0) + eps), -1, 1)
+    return float(np.mean(np.arccos(cos)))
 
 
 def evaluate(pred, target, mask=None) -> dict:
     out = {"psnr": psnr(pred, target), "ssim": ssim(pred, target), "sam": sam(pred, target)}
     if mask is not None:
         out.update({
-            "psnr_cloud": masked(psnr, pred, target, mask),
-            "sam_cloud": masked(sam, pred, target, mask),
+            "psnr_cloud": masked_psnr(pred, target, mask),
+            "sam_cloud": masked_sam(pred, target, mask),
         })
     return out
