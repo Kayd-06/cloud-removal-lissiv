@@ -1,4 +1,4 @@
-"""Export co-registered Sentinel-1 SAR + Sentinel-2 optical + cloud mask over a
+r"""Export co-registered Sentinel-1 SAR + Sentinel-2 optical + cloud mask over a
 LISS-IV footprint, straight from Google Earth Engine (free).
 
 This removes most of the manual data-wrangling: GEE reprojects/clips everything to a
