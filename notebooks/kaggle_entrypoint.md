@@ -1,11 +1,16 @@
 # Kaggle entrypoint (copy-paste)
 
-Free P100 16GB, 30 GPU-h/week, sessions up to 9h, datasets persist. This is your
+Free GPU, 30 GPU-h/week, sessions up to 9h, datasets persist. This is your
 primary training environment.
+
+> ⚠️ **Use GPU T4 x2, NOT P100.** Kaggle's current PyTorch build dropped support for
+> the older P100 (compute capability sm_60) and will crash with
+> `no kernel image is available for execution on the device`. The T4 (sm_75) works.
 
 ## 1. Setup
 
-Create a new Kaggle Notebook → Settings → Accelerator = **GPU P100**, Internet = **On**.
+Create a new Kaggle Notebook → **Settings** menu (top bar) → Accelerator = **GPU T4 x2**,
+Internet = **On**. (Our code uses a single GPU; the second T4 just sits idle, which is fine.)
 
 ```python
 # clone your repo (push this project to GitHub first, or upload as a Kaggle Dataset)

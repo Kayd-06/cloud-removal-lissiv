@@ -15,7 +15,7 @@ transfer learning from the **SEN12MS-CR** benchmark.
 
 | Need | Free tool |
 |------|-----------|
-| Compute | **Kaggle** (P100 16GB, 30 GPU-h/week) → Colab free as overflow |
+| Compute | **Kaggle** (GPU **T4 x2**, 30 GPU-h/week) → Colab free as overflow |
 | LISS-IV | Bhoonidhi (ISRO) |
 | Sentinel-1 SAR / Sentinel-2 | Google Earth Engine / Copernicus Browser |
 | Cloud masks | `s2cloudless` / Sentinel-2 SCL |

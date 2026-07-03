@@ -3,6 +3,13 @@
   python scripts/smoke_test.py
 """
 from __future__ import annotations
+import os
+import sys
+
+# allow running as a plain script (`python scripts/smoke_test.py`) by putting the
+# project root on the path so `import src...` resolves.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import torch
 
 from src.config import CFG
