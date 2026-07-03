@@ -25,29 +25,48 @@ def _mean(dicts: list[dict]) -> dict:
     return {k: float(np.mean([d[k] for d in dicts])) for k in keys}
 
 
-def to_display(img):
-    """Turn a (3,H,W)=[Green,Red,NIR] patch into a natural-looking RGB for viewing.
+def _stretch_per_channel(rgb, p=(2, 98), gamma=0.8):
+    """Independent 2-98 percentile stretch per channel (auto white-balance) + gamma."""
+    out = np.empty_like(rgb)
+    for c in range(3):
+        lo, hi = np.percentile(rgb[..., c], p)
+        out[..., c] = np.clip((rgb[..., c] - lo) / (hi - lo + 1e-6), 0, 1)
+    return out ** gamma
 
-    LISS-IV has no Blue band, so we synthesize a plausible blue from green and render
-    Red/Green/synth-Blue, then apply a per-image 2-98 percentile stretch + mild gamma.
-    This makes vegetation green and land natural instead of the raw NIR-in-blue cast.
+
+def _saturate(rgb, s=1.4):
+    gray = rgb.mean(-1, keepdims=True)
+    return np.clip(gray + (rgb - gray) * s, 0, 1)
+
+
+def to_display(img, mode="vivid"):
+    """Render a (3,H,W)=[Green,Red,NIR] patch to RGB. LISS-IV has no Blue band, so:
+
+      fcc     -> False Color Composite [NIR,R,G]: vegetation glows red. The standard,
+                 striking remote-sensing look; best 'wow' factor for judges.
+      natural -> [R, G, synth-Blue] with per-channel white balance: realistic greens.
+      vivid   -> natural + saturation boost + contrast (default).
     """
     g, r, nir = img[0], img[1], img[2]
-    b = np.clip(0.6 * g, 0, 1)                       # synthesized blue-ish channel
+    if mode == "fcc":
+        rgb = np.stack([nir, r, g], axis=-1).astype(np.float32)
+        return _stretch_per_channel(rgb, gamma=0.75)
+    b = np.clip(0.55 * g + 0.10 * r, 0, 1)            # synthesized blue channel
     rgb = np.stack([r, g, b], axis=-1).astype(np.float32)
-    lo, hi = np.percentile(rgb, (2, 98))
-    rgb = np.clip((rgb - lo) / (hi - lo + 1e-6), 0, 1) ** 0.8
+    rgb = _stretch_per_channel(rgb, gamma=0.8)
+    if mode == "vivid":
+        rgb = _saturate(rgb, 1.5)
     return rgb
 
 
-def save_triptych(cloudy, pred, target, path):
+def save_triptych(cloudy, pred, target, path, mode="vivid"):
     try:
         import matplotlib.pyplot as plt
     except ImportError:
         return
     fig, ax = plt.subplots(1, 3, figsize=(9, 3))
     for a, img, t in zip(ax, [cloudy, pred, target], ["cloudy", "reconstructed", "clear"]):
-        a.imshow(to_display(img[:3])); a.set_title(t); a.axis("off")
+        a.imshow(to_display(img[:3], mode)); a.set_title(t); a.axis("off")
     fig.tight_layout(); fig.savefig(path, dpi=110); plt.close(fig)
 
 
@@ -58,6 +77,8 @@ def main() -> None:
     ap.add_argument("--diff", default=None)
     ap.add_argument("--out", default="results")
     ap.add_argument("--n_images", type=int, default=8)
+    ap.add_argument("--render", default="vivid", choices=["vivid", "natural", "fcc"],
+                    help="image style: vivid natural | natural | fcc (false-color, veg=red)")
     args = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -94,7 +115,8 @@ def main() -> None:
                     if saved < args.n_images and name == list(models)[0]:
                         save_triptych(batch["cloudy"][i].numpy(), pred[i].cpu().numpy(),
                                       y[i].cpu().numpy(),
-                                      os.path.join(args.out, f"cmp_{saved}.png"))
+                                      os.path.join(args.out, f"cmp_{saved}.png"),
+                                      mode=args.render)
                         saved += 1
 
     # print table
