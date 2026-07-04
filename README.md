@@ -6,10 +6,40 @@ transfer learning from the **SEN12MS-CR** benchmark.
 
 > **Novelty angle:** LISS-IV has *no SWIR bands* (only Green / Red / NIR at 5.8 m),
 > so standard Sentinel-2 cloud-removal models don't transfer directly. We fuse
-> cloud-penetrating SAR, reconstruct with both a GAN and a conditional diffusion
-> model, and adapt across sensors. Three defensible contributions:
+> cloud-penetrating SAR, reconstruct with a conditional GAN, and adapt across sensors.
+> Three defensible contributions:
 > (1) SWIR-less sensor adaptation, (2) SAR-optical multimodal fusion,
-> (3) diffusion-vs-GAN comparison.
+> (3) both GAN and diffusion architectures implemented on a shared interface for
+> comparison (GAN trained & evaluated; conditional diffusion ready to extend).
+
+## Results
+
+SAR-fusion GAN trained on **2,295 paired patches** across **18 North-East India regions**
+(cities, hills, floodplains, tea gardens, river valleys). Validation set:
+
+| Model | PSNR ↑ | SSIM ↑ | SAM ↓ | PSNR (cloud) ↑ | SAM (cloud) ↓ |
+|---|---|---|---|---|---|
+| GAN, 636 pairs / 6 regions | 22.14 | 0.938 | 0.093 | 20.57 | 0.108 |
+| **GAN, 2,295 pairs / 18 regions** | **23.52** | **0.944** | **0.083** | **22.11** | **0.099** |
+
+Scaling geographic diversity improved every metric, most notably **+1.5 dB PSNR inside
+the clouded regions** — evidence of genuine surface reconstruction. Full write-up in
+[`docs/REPORT.md`](docs/REPORT.md).
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Sentinel-2<br/>clear composite] --> T[Tile &<br/>co-register]
+    B[Sentinel-1<br/>SAR VV/VH] --> T
+    T --> S[Synthetic<br/>cloud injection]
+    S --> D[(Paired patches<br/>cloudy · SAR · mask · clear)]
+    D --> G[SAR-fusion GAN<br/>U-Net + PatchGAN]
+    G --> R[Cloud-free<br/>reconstruction]
+    R --> E[PSNR · SSIM · SAM]
+```
+
+Input to the generator = `cloudy(3) ⊕ SAR(2) ⊕ mask(1)` → output = clear optical(3).
 
 ## Zero-cost stack
 
