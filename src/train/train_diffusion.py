@@ -31,6 +31,8 @@ def main() -> None:
     ap.add_argument("--init", default=None, help="optional pretrained weights (transfer learning)")
     ap.add_argument("--epochs", type=int, default=CFG.epochs)
     ap.add_argument("--batch", type=int, default=CFG.batch_size)
+    ap.add_argument("--val_every", type=int, default=5,
+                    help="run (expensive) DDIM-sampling validation every N epochs")
     args = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -76,24 +78,28 @@ def main() -> None:
             if step % CFG.log_every == 0:
                 print(f"e{epoch} s{step}/{len(tl)} loss={loss.item():.4f}")
 
-        # --- validation via DDIM sampling on a few batches ---
-        model.eval(); agg = {}; nb = 0
-        with torch.no_grad():
-            for batch in vl:
-                cond = batch["input"].to(dev); y = batch["target"].to(dev); m = batch["mask"].to(dev)
-                pred = diff.ddim_sample(model, cond, y.shape, steps=CFG.sample_steps)
-                for k, v in evaluate(pred, y, m).items():
-                    agg[k] = agg.get(k, 0.0) + v
-                nb += 1
-                if nb >= 4:  # keep val fast on free GPU
-                    break
-        agg = {k: v / max(nb, 1) for k, v in agg.items()}
-        print(f"[val] epoch {epoch} " + " ".join(f"{k}={v:.3f}" for k, v in agg.items())
-              + f"  ({time.time()-t0:.0f}s)")
+        # --- validation via DDIM sampling (expensive) -- only every val_every epochs ---
+        agg = {}
+        is_val_epoch = (epoch % args.val_every == 0) or (epoch == args.epochs - 1)
+        if is_val_epoch:
+            model.eval(); nb = 0
+            with torch.no_grad():
+                for batch in vl:
+                    cond = batch["input"].to(dev); y = batch["target"].to(dev); m = batch["mask"].to(dev)
+                    pred = diff.ddim_sample(model, cond, y.shape, steps=CFG.sample_steps)
+                    for k, v in evaluate(pred, y, m).items():
+                        agg[k] = agg.get(k, 0.0) + v
+                    nb += 1
+                    if nb >= 4:  # keep val fast on free GPU
+                        break
+            agg = {k: v / max(nb, 1) for k, v in agg.items()}
+            print(f"[val] epoch {epoch} " + " ".join(f"{k}={v:.3f}" for k, v in agg.items())
+                  + f"  ({time.time()-t0:.0f}s)")
+        else:
+            print(f"[train] epoch {epoch} done  ({time.time()-t0:.0f}s)")
 
         if epoch % CFG.ckpt_every == 0:
             ckpt.save(last, epoch=epoch, model=model.state_dict(), opt=opt.state_dict(), val=agg)
-            print(f"[ckpt] saved {last}")
 
     print("[done] diffusion training complete")
 
