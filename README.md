@@ -4,7 +4,7 @@ Generative-AI framework for automated cloud removal in **LISS-IV** satellite ima
 using **Sentinel-1 SAR** as a cloud-penetrating structural prior and cross-sensor
 transfer learning from the **SEN12MS-CR** benchmark.
 
-![Cloud removal result: cloudy input, reconstruction, clear ground truth](docs/images/result_fcc.png)
+![Cloud removal result: cloudy input, reconstruction, clear ground truth](docs/result_fcc.png)
 
 > *Example reconstruction (false-color): **cloudy input → reconstructed → clear ground truth**.*
 
